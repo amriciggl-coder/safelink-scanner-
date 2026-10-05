@@ -1,0 +1,78 @@
+from flask import Flask, render_template_string, request
+import requests
+from urllib.parse import urlparse
+
+app = Flask(__name__)
+
+HTML_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SafeLink - فاحص الروابط</title>
+    <style>
+        body { font-family: system-ui, sans-serif; background: #0f172a; color: #fff; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; }
+        .card { background: #1e293b; padding: 30px; border-radius: 16px; width: 100%; max-width: 500px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); text-align: center; }
+        h1 { color: #38bdf8; margin-bottom: 8px; }
+        p { color: #94a3b8; font-size: 14px; }
+        input[type="text"] { width: 100%; padding: 14px; border: 1px solid #334155; background: #0f172a; color: #fff; border-radius: 8px; margin: 20px 0; font-size: 16px; box-sizing: border-box; }
+        button { width: 100%; padding: 14px; background: #0284c7; color: white; border: none; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; }
+        button:hover { background: #0369a1; }
+        .result { margin-top: 25px; padding: 15px; border-radius: 8px; text-align: right; line-height: 1.6; }
+        .safe { background: rgba(34, 197, 94, 0.15); border: 1px solid #22c55e; color: #4ade80; }
+        .danger { background: rgba(239, 68, 68, 0.15); border: 1px solid #ef4444; color: #f87171; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>🛡️ SafeLink</h1>
+        <p>فاحص الروابط المتقدم للشفافية والحماية من الاحتيال</p>
+        <form method="POST">
+            <input type="text" name="url" placeholder="ألصق الرابط هنا (مثال: https://...)" required>
+            <button type="submit">فحص الرابط الآن</button>
+        </form>
+
+        {% if result %}
+        <div class="result {{ 'safe' if result.is_safe else 'danger' }}">
+            <h3>النتيجة: {{ result.status }}</h3>
+            <p><strong>الرابط النهائي:</strong> {{ result.final_url }}</p>
+            <p><strong>تشفير SSL/HTTPS:</strong> {{ 'آمن 🔒' if result.is_https else 'غير آمن ⚠️' }}</p>
+        </div>
+        {% endif %}
+    </div>
+</body>
+</html>
+"""
+
+def scan_url(url):
+    if not url.startswith(('http://', 'https://')):
+        url = 'http://' + url
+    
+    try:
+        response = requests.get(url, allow_redirects=True, timeout=8)
+        final_url = response.url
+        is_https = final_url.startswith('https://')
+        
+        keywords = ['login', 'verify', 'bank', 'account', 'update', 'secure', 'free', 'gift']
+        parsed = urlparse(final_url)
+        is_suspicious = any(kw in parsed.path.lower() or kw in parsed.netloc.lower() for kw in keywords)
+        
+        if is_https and not is_suspicious:
+            return {'is_safe': True, 'status': 'الرابط آمن ومستقر 🟢', 'final_url': final_url, 'is_https': is_https}
+        else:
+            return {'is_safe': False, 'status': 'الرابط مشبوه أو يحوي كلمات حذرة 🔴', 'final_url': final_url, 'is_https': is_https}
+    except Exception as e:
+        return {'is_safe': False, 'status': f'فشل الاتصال بالرابط: {str(e)}', 'final_url': url, 'is_https': False}
+
+@app.route('/', methods=['GET', 'POST'])
+def home():
+    result = None
+    if request.method == 'POST':
+        target_url = request.form.get('url')
+        if target_url:
+            result = scan_url(target_url)
+    return render_template_string(HTML_TEMPLATE, result=result)
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000)
